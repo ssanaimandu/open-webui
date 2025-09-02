@@ -50,14 +50,3 @@ jobs:
           echo "🚀 Pushing to Docker Hub..."
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/open-webui:${{ steps.get_tag.outputs.tag }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/open-webui:latest
-
-      - name: Cleanup old Docker Hub images
-        if: steps.check_image.outputs.exists == 'false'
-        uses: snok/container-retention-policy@v2
-        with:
-          image-names: ${{ secrets.DOCKERHUB_USERNAME }}/open-webui
-          account-type: personal # Docker Hub 계정 유형 명시
-          keep-most-recent: 5
-          user: ${{ secrets.DOCKERHUB_USERNAME }}
-          token: ${{ secrets.DOCKERHUB_TOKEN }}
-          keep-tags: latest
