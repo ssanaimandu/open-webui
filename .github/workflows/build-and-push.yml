@@ -1,0 +1,114 @@
+name: Build and Push Open-WebUI Image
+
+on:
+  # 1. 수동 실행을 위한 트리거
+  workflow_dispatch:
+  # 2. 6시간마다 자동으로 실행하는 스케줄러 (Cron 표현식)
+  schedule:
+    - cron: '0 */6 * * *'
+
+jobs:
+  build-push-cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: 1. Get latest release tag from open-webui
+        id: get_tag
+        run: |
+          # GitHub API를 이용해 open-webui/open-webui의 최신 릴리즈 태그를 가져옵니다.
+          TAG=$(curl -s "https://api.github.com/repos/open-webui/open-webui/releases/latest" | jq -r .tag_name)
+          echo "Latest release tag is: $TAG"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: 2. Check if Docker image already exists
+        id: check_image
+        run: |
+          # Docker Hub API를 이용해 해당 태그의 이미지가 이미 존재하는지 확인합니다.
+          TAG="${{ steps.get_tag.outputs.tag }}"
+          IMAGE_EXISTS=$(curl -s "https://hub.docker.com/v2/repositories/ssanaimandu/open-webui/tags/${TAG}" | jq '.name')
+          if [[ "$IMAGE_EXISTS" == "\"`${TAG}`\"" ]]; then
+            echo "Image ssanaimandu/open-webui:${TAG} already exists. Skipping build."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Image ssanaimandu/open-webui:${TAG} does not exist. Proceeding with build."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 3. Set up Docker Buildx
+        if: steps.check_image.outputs.exists == 'false'
+        uses: docker/setup-buildx-action@v3
+
+      - name: 4. Login to Docker Hub
+        if: steps.check_image.outputs.exists == 'false'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 5. Checkout open-webui source code
+        if: steps.check_image.outputs.exists == 'false'
+        uses: actions/checkout@v4
+        with:
+          repository: open-webui/open-webui
+          ref: ${{ steps.get_tag.outputs.tag }} # 가져온 최신 릴리즈 태그로 체크아웃
+          path: 'open-webui-src' # 소스코드를 받을 폴더 지정
+
+      - name: 6. Build and push Docker image
+        if: steps.check_image.outputs.exists == 'false'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./open-webui-src
+          file: ./open-webui-src/Dockerfile # Dockerfile 경로 명시
+          push: true
+          tags: |
+            ssanaimandu/open-webui:${{ steps.get_tag.outputs.tag }}
+            ssanaimandu/open-webui:latest
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 7. Cleanup old Docker Hub images
+        # 빌드 성공 여부와 관계없이 항상 실행되어 오래된 태그를 정리합니다.
+        if: always()
+        run: |
+          # Docker Hub API를 사용하여 태그 목록을 가져와 정리하는 스크립트
+          USERNAME="${{ secrets.DOCKERHUB_USERNAME }}"
+          PASSWORD="${{ secrets.DOCKERHUB_TOKEN }}"
+          REPO="ssanaimandu/open-webui"
+          KEEP_COUNT=5 # 유지할 최신 이미지 개수
+
+          echo "Fetching auth token from Docker Hub..."
+          TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'${USERNAME}'", "password": "'${PASSWORD}'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+          
+          if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then
+            echo "Failed to get Docker Hub token."
+            exit 1
+          fi
+
+          echo "Fetching tags from ${REPO}..."
+          TAGS=$(curl -s -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${REPO}/tags/?page_size=100" | jq -r '.results[].name' | grep -v 'latest' | sort -V)
+
+          TAG_COUNT=$(echo "${TAGS}" | wc -l)
+          echo "Found ${TAG_COUNT} tags (excluding 'latest')."
+
+          if [ ${TAG_COUNT} -le ${KEEP_COUNT} ]; then
+            echo "Number of tags is within the limit. No cleanup needed."
+            exit 0
+          fi
+
+          TAGS_TO_DELETE=$(echo "${TAGS}" | head -n -$((KEEP_COUNT)))
+
+          echo "Tags to delete:"
+          echo "${TAGS_TO_DELETE}"
+
+          for TAG in ${TAGS_TO_DELETE}; do
+            echo "Deleting tag: ${TAG}"
+            curl -s -X DELETE -H "Authorization: JWT ${TOKEN}" "https://hub.docker.com/v2/repositories/${REPO}/tags/${TAG}/"
+            if [ $? -eq 0 ]; then
+              echo "Successfully deleted ${TAG}."
+            else
+              echo "Failed to delete ${TAG}."
+            fi
+          done
