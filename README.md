@@ -1,2 +1,2 @@
 # open-webui
-open-webui clone
+open-webui, mcpo clonning repo
