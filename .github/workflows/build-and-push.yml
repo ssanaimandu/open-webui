@@ -1,4 +1,4 @@
- name: Sync Open WebUI Image and Cleanup
+name: Sync Open WebUI Image and Cleanup
 
 on:
   # 6시간마다 주기적으로 실행하여 새 릴리즈가 있는지 확인합니다.
