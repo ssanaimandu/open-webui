@@ -1,0 +1,52 @@
+name: Sync Mcpo Image
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest release tag from Open-WebUI
+        id: get_tag
+        run: |
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/open-webui/mcpo/releases/latest" | jq -r .tag_name)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "Failed to fetch latest tag"
+            exit 1
+          fi
+          echo "✅ Latest release tag is ${LATEST_TAG}"
+          echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Check if Docker image tag already exists
+        id: check_image
+        run: |
+          if docker manifest inspect ${{ secrets.DOCKERHUB_USERNAME }}/mcpo:${{ steps.get_tag.outputs.tag }} >/dev/null; then
+            echo "Image tag ${{ steps.get_tag.outputs.tag }} already exists. No action needed."
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Image tag ${{ steps.get_tag.outputs.tag }} does not exist. Proceeding to pull and push."
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Pull, Tag, and Push Docker Image
+        if: steps.check_image.outputs.exists == 'false'
+        run: |
+          echo "🚚 Pulling from ghcr.io..."
+          docker pull ghcr.io/open-webui/mcpo:main
+          
+          echo "🏷️ Tagging images..."
+          docker tag ghcr.io/open-webui/mcpo:main ${{ secrets.DOCKERHUB_USERNAME }}/mcpo:${{ steps.get_tag.outputs.tag }}
+          docker tag ghcr.io/open-webui/mcpo:main ${{ secrets.DOCKERHUB_USERNAME }}/mcpo:latest
+          
+          echo "🚀 Pushing to Docker Hub..."
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/mcpo:${{ steps.get_tag.outputs.tag }}
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/mcpo:latest
