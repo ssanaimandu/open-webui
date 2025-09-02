@@ -1,17 +1,14 @@
 name: Sync Open WebUI Image and Cleanup
 
 on:
-  # 6시간마다 주기적으로 실행하여 새 릴리즈가 있는지 확인합니다.
   schedule:
     - cron: '0 */6 * * *'
-  # Actions 탭에서 수동으로 워크플로우를 실행할 수 있게 합니다.
   workflow_dispatch:
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      # 1. Open-WebUI 리포지토리의 최신 릴리즈 태그 가져오기
       - name: Get latest release tag from Open-WebUI
         id: get_tag
         run: |
@@ -23,14 +20,12 @@ jobs:
           echo "✅ Latest release tag is ${LATEST_TAG}"
           echo "tag=${LATEST_TAG}" >> $GITHUB_OUTPUT
 
-      # 2. Docker Hub에 로그인
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 3. Docker Hub에 이미 동일한 태그가 있는지 확인 (중복 작업 방지)
       - name: Check if Docker image tag already exists
         id: check_image
         run: |
@@ -42,7 +37,6 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      # 4. 새 이미지를 Pull, Tag, Push (새 릴리즈가 있을 경우에만 실행)
       - name: Pull, Tag, and Push Docker Image
         if: steps.check_image.outputs.exists == 'false'
         run: |
@@ -57,13 +51,13 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/open-webui:${{ steps.get_tag.outputs.tag }}
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/open-webui:latest
 
-      # 5. 오래된 Docker Hub 이미지 삭제 (새 이미지를 푸시했을 경우에만 실행)
       - name: Cleanup old Docker Hub images
         if: steps.check_image.outputs.exists == 'false'
         uses: snok/container-retention-policy@v2
         with:
           image-names: ${{ secrets.DOCKERHUB_USERNAME }}/open-webui
-          keep-most-recent: 5 # 유지할 최신 이미지 개수
+          account-type: personal # Docker Hub 계정 유형 명시
+          keep-most-recent: 5
           user: ${{ secrets.DOCKERHUB_USERNAME }}
           token: ${{ secrets.DOCKERHUB_TOKEN }}
-          keep-tags: latest # 'latest' 태그는 삭제하지 않음
+          keep-tags: latest
