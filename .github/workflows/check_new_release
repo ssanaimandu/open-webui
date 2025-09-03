@@ -1,0 +1,38 @@
+name: Check for new releases in open-webui/mcpo
+
+on:
+  schedule:
+    # 매시간 실행합니다.
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get latest release tag
+        id: get_release
+        run: |
+          # GitHub API를 사용하여 최신 릴리즈 태그를 가져옵니다.
+          TAG=$(curl -s "https://api.github.com/repos/open-webui/mcpo/releases/latest" | jq -r .tag_name)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Check if image with tag exists on Docker Hub
+        id: check_dockerhub
+        run: |
+          # Docker Hub API를 사용하여 해당 태그의 이미지가 존재하는지 확인합니다.
+          EXISTS=$(curl -s "https://hub.docker.com/v2/repositories/${{ secrets.DOCKERHUB_USERNAME }}/mcpo/tags/${{ steps.get_release.outputs.tag }}/" | jq .name)
+          if [ "$EXISTS" != "null" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger build workflow if new release is found
+        if: steps.check_dockerhub.outputs.exists == 'false'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          event-type: new-release
+          client-payload: '{"release": {"tag_name": "${{ steps.get_release.outputs.tag }}"}}'
