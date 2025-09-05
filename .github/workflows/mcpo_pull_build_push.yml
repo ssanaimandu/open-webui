@@ -38,7 +38,7 @@ jobs:
           # 패키지 목록을 업데이트하고 Docker CLI를 설치합니다.
           RUN apt-get update && \
               apt-get install -y --no-install-recommends docker.io && \
-              rm -rf /var/lib/apt/lists/* \
+              rm -rf /var/lib/apt/lists/* && \
               /usr/local/bin/pip install pandas matplotlib psycopg2 requests fastmcp
 
           # 원래 사용자로 다시 전환합니다. (필요한 경우)
