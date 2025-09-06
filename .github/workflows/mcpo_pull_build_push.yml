@@ -35,10 +35,16 @@ jobs:
           # 루트 권한으로 전환하여 도커 클라이언트를 설치합니다.
           USER root
 
-          # 패키지 목록을 업데이트하고 Docker CLI를 설치합니다.
+          # 패키지 목록을 업데이트하고 Docker 클라이언트 및 빌드 도구를 설치합니다.
           RUN apt-get update && \
-              apt-get install -y --no-install-recommends docker.io && \
+              apt-get install -y --no-install-recommends \
+              docker.io \
+              build-essential \
+              libpq-dev \
+              python3-dev && \
               rm -rf /var/lib/apt/lists/*
+          
+          # 요청된 Python 모듈을 설치합니다.
           RUN /usr/local/bin/pip3 install pandas matplotlib psycopg2 requests fastmcp
 
           # 원래 사용자로 다시 전환합니다. (필요한 경우)
